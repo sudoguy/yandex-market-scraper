@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from random import random
 
 import requests
 import sys
@@ -18,11 +19,26 @@ else:
     from urlparse import urljoin
 
 
+def error_handler(func):
+    def error_handler_wrapper(*args, **kwargs):
+        self = args[0]
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                self.logger.warning(str(e))
+                time.sleep(60 * random())
+                continue
+
+    return error_handler_wrapper
+
+
 class API(object):
     def __init__(self):
         self.LastResponse = None
         self.LastPage = None
         self.session = requests.Session()
+        self.session.proxies = config.PROXIES
 
         # handle logging
         self.logger = logging.getLogger('[yandex-market-scraper]')
@@ -38,6 +54,7 @@ class API(object):
         ch.setFormatter(formatter)
         self.logger.addHandler(ch)
 
+    @error_handler
     def send_request(self, endpoint, post=None):
         if not self.session:
             self.logger.critical("Session is not created.")
@@ -81,68 +98,122 @@ class API(object):
                 pass
             return False
 
+    @error_handler
     def get_page_by_name(self, name, page=1):
         if not name:
             self.logger.warning('Parameter "name" must be exist')
             return False
         return self.send_request('/search?text={0}&page={1}'.format(name, page))
 
+    @error_handler
     def get_items_from_page(self, page_text):
-        items =  BeautifulSoup(page_text, 'html.parser').find('div', {'class': 'filter-applied-results'}) \
-            .find_all('div', {'class': 'snippet-list'})[1] \
-            .find_all('div', {'class': 'snippet-card'})
-        return map(lambda item: str(item), items)
+        if not page_text:
+            self.logger.error('Page not found!')
+            assert ValueError('Page not found!')
 
+        try:
+            items = BeautifulSoup(page_text, 'html.parser').find('div', {'class': 'filter-applied-results'}) \
+                .find_all('div', {'class': 'snippet-list'})[1] \
+                .find_all('div', {'class': 'snippet-card'})
+            return map(lambda item: str(item), items)
+        except AttributeError:
+            # ToDo: Use another proxy from list
+            bot.logger.critical('Captcha!')
+
+    @error_handler
     def get_item_view(self, item):
         if not item:
-            self.logger.error('Item not found!')
-            return False
+            self.logger.error('Item is empty!')
+            assert ValueError('Item is empty!')
         soup = BeautifulSoup(item, 'html.parser')
         item_view = soup.find('div', {'class': 'snippet-card__view'})
-        thumb_image = item_view.find('img', {'class': 'image'}).get('src')
-        thumb_image = urljoin(config.BASE_URL, thumb_image)
+        thumb_image = item_view.find('img', {'class': 'image'})
+        if thumb_image:
+            thumb_image = urljoin(config.BASE_URL, thumb_image.get('src'))
+        else:
+            thumb_image = None
+
         rating = item_view.find('div', {'class': 'rating'})
         if rating:
-            rating = rating.text
+            rating = float(rating.text)
         else:
             rating = None
         return json.dumps({
             'thumb_image': thumb_image,
             'rating': rating
-        })
+        }, ensure_ascii=False).encode('utf8')
 
+    @error_handler
     def get_item_info(self, item):
         if not item:
-            self.logger.error('Item not found!')
-            return False
+            self.logger.error('Item is empty!')
+            assert ValueError("Item is empty!")
         soup = BeautifulSoup(item, 'html.parser')
         item_info = soup.find('div', {'class': 'snippet-card__info'})
         min_price = item_info.find('div', {'class': 'price'})
         max_price = item_info.find('span', {'class': 'price'})
-        if min_price and max_price:
-            min_price = re.match(r'[\d\s]+', min_price.text)
-            min_price = min_price.group(0).replace(' ', '')
-            max_price = re.match(r'[\d\s]+', max_price.text)
-            max_price = max_price.group(0).replace(' ', '')
+        if min_price:
+            min_price = re.search(r'(\d+)', min_price.text.replace(' ', ''))
+            min_price = int(min_price.group())
         else:
             min_price = None
+        if max_price:
+            max_price = re.search(r'(\d+)', max_price.text.replace(' ', ''))
+            max_price = int(max_price.group())
+        else:
             max_price = None
-        rating = item_info.find('div', {'class': 'rating'})
 
         return json.dumps({
             'min_price': min_price,
             'max_price': max_price
-        })
+        }, ensure_ascii=False).encode('utf8')
+
+    @error_handler
+    def get_item_content(self, item):
+        if not item:
+            self.logger.error('Item is empty!')
+            assert ValueError("Item is empty!")
+        soup = BeautifulSoup(item, 'html.parser')
+        item_content = soup.find('div', {'class': 'snippet-card__content'})
+        header = item_content.find('span', {'class': 'snippet-card__header-text'}).text
+        category = item_content.find('a', {'class': 'snippet-card__subheader-link'})
+
+        if category:
+            category = category.text
+            category_link = urljoin(config.BASE_URL,
+                                    item_content.find('a', {'class': 'snippet-card__subheader-link'})['href'])
+        else:
+            category = None
+            category_link = None
+
+        short_description = item_content.find_all('li', {'class': 'snippet-card__desc-item'})
+        if short_description:
+            short_description = [li.text for li in short_description if 'Цвет' not in li.text]
+        else:
+            short_description = None
+
+        return json.dumps({
+            'header': header,
+            'category': category,
+            'category_link': category_link,
+            'short_description': short_description,
+        }, ensure_ascii=False).encode('utf8')
 
 
 bot = API()
 bot.get_page_by_name('macbook')
 
-soup = BeautifulSoup(bot.LastPage, 'html.parser')
-results = soup.find('div', {'class': 'filter-applied-results'}) \
-    .find_all('div', {'class': 'snippet-list'})[1] \
-    .find_all('div', {'class': 'snippet-card'})
-for item in results:
-    print(bot.get_item_view(item))
-    print(bot.get_item_info(item))
+results = bot.get_items_from_page(bot.LastPage)
+if results:
+    for item in results:
+        print("VIEW")
+        data = bot.get_item_view(item)
+        print(json.loads(data))
+        print("INFO")
+        data = bot.get_item_info(item)
+        print(json.loads(data))
+        print("CONTENT")
+        data = bot.get_item_content(item)
+        print(json.loads(data))
+        print("\n")
 print(results)
