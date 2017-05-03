@@ -33,6 +33,17 @@ def error_handler(func):
     return error_handler_wrapper
 
 
+def clean_url(url):
+    # filter links on local stores
+    if 'market-click' in url:
+        return None
+    # remove parameters from url
+    if url.find('?') == -1:
+        return url
+    else:
+        return url[:url.find('?')]
+
+
 class API(object):
     def __init__(self):
         self.LastResponse = None
@@ -175,13 +186,18 @@ class API(object):
             assert ValueError("Item is empty!")
         soup = BeautifulSoup(item, 'html.parser')
         item_content = soup.find('div', {'class': 'snippet-card__content'})
-        header = item_content.find('span', {'class': 'snippet-card__header-text'}).text
+        product = item_content.find('span', {'class': 'snippet-card__header-text'}).text
+
+        product_link = item_content.find('a', {'class': 'snippet-card__header-link'})['href']
+        product_link = clean_url(urljoin(config.BASE_URL, product_link))
+
         category = item_content.find('a', {'class': 'snippet-card__subheader-link'})
 
         if category:
             category = category.text
             category_link = urljoin(config.BASE_URL,
                                     item_content.find('a', {'class': 'snippet-card__subheader-link'})['href'])
+            category_link = clean_url(category_link)
         else:
             category = None
             category_link = None
@@ -193,7 +209,8 @@ class API(object):
             short_description = None
 
         return json.dumps({
-            'header': header,
+            'product': product,
+            'product_link': product_link,
             'category': category,
             'category_link': category_link,
             'short_description': short_description,
