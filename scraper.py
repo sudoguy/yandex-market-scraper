@@ -1,9 +1,12 @@
 import json
 import logging
 import re
-from random import random
+from random import random, choice
 
 import requests
+from requests.adapters import HTTPAdapter
+from tqdm import tqdm
+from requests.exceptions import ProxyError, SSLError
 import sys
 import urllib3
 import time
@@ -25,6 +28,16 @@ def error_handler(func):
         while True:
             try:
                 return func(*args, **kwargs)
+            except AttributeError:
+                self.logger.error('Captcha! Getting new proxy.')
+                self.user_agent = choice(config.USER_AGENT)
+                self.set_new_proxy()
+                time.sleep(60 * random())
+            except (ProxyError, SSLError) as e:
+                self.logger.error(str(e))
+                self.logger.error('Not working proxy. Getting new one.')
+                self.set_new_proxy()
+                time.sleep(60 * random())
             except Exception as e:
                 self.logger.warning(str(e))
                 time.sleep(60 * random())
@@ -49,7 +62,11 @@ class API(object):
         self.LastResponse = None
         self.LastPage = None
         self.session = requests.Session()
-        self.session.proxies = config.PROXIES
+        self.session.mount('https://', HTTPAdapter(max_retries=3))
+        from proxy_switcher import ProxySwitcher
+        self.proxy_switcher = ProxySwitcher()
+        self.user_agent = choice(config.USER_AGENT)
+        self.session.proxies = None
 
         # handle logging
         self.logger = logging.getLogger('[yandex-market-scraper]')
@@ -64,6 +81,7 @@ class API(object):
         )
         ch.setFormatter(formatter)
         self.logger.addHandler(ch)
+        self.set_new_proxy()
 
     @error_handler
     def send_request(self, endpoint, post=None):
@@ -76,19 +94,18 @@ class API(object):
                                      'Content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
                                      'Cookie2': '$Version=1',
                                      'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4',
-                                     'User-Agent': config.USER_AGENT})
-        try:
-            if post is not None:  # POST
-                response = self.session.post(
-                    config.BASE_URL + endpoint, data=post)
-            else:  # GET
-                response = self.session.get(
-                    config.BASE_URL + endpoint)
-        except Exception as e:
-            self.logger.warning(str(e))
-            return False
+                                     'User-Agent': self.user_agent})
+
+        if post is not None:  # POST
+            response = self.session.post(
+                config.BASE_URL + endpoint, data=post)
+        else:  # GET
+            response = self.session.get(
+                config.BASE_URL + endpoint)
 
         if response.status_code == 200:
+            if 'showcaptcha' in response.url:
+                raise AttributeError
             self.LastResponse = response
             self.LastPage = response.text
             return True
@@ -122,14 +139,18 @@ class API(object):
             self.logger.error('Page not found!')
             assert ValueError('Page not found!')
 
-        try:
-            items = BeautifulSoup(page_text, 'html.parser').find('div', {'class': 'filter-applied-results'}) \
-                .find_all('div', {'class': 'snippet-list'})[1] \
-                .find_all('div', {'class': 'snippet-card'})
-            return map(lambda item: str(item), items)
-        except AttributeError:
-            # ToDo: Use another proxy from list
-            bot.logger.critical('Captcha!')
+        items = BeautifulSoup(page_text, 'html.parser').find('div', {'class': 'filter-applied-results'}) \
+            .find_all('div', {'class': 'snippet-list'})[1] \
+            .find_all('div', {'class': 'snippet-card'})
+        return map(lambda item: str(item), items)
+
+    @error_handler
+    def set_new_proxy(self):
+        new_proxy = None
+        while not new_proxy:
+            new_proxy = self.proxy_switcher.get_new_proxy()
+        self.session.proxies = {'https': new_proxy}
+        self.logger.warning("New proxy - {0} [LEFT {1}]".format(new_proxy, len(self.proxy_switcher.proxies)))
 
     @error_handler
     def get_item_view(self, item):
@@ -149,10 +170,10 @@ class API(object):
             rating = float(rating.text)
         else:
             rating = None
-        return json.dumps({
+        return {
             'thumb_image': thumb_image,
             'rating': rating
-        }, ensure_ascii=False).encode('utf8')
+        }
 
     @error_handler
     def get_item_info(self, item):
@@ -174,10 +195,10 @@ class API(object):
         else:
             max_price = None
 
-        return json.dumps({
+        return {
             'min_price': min_price,
             'max_price': max_price
-        }, ensure_ascii=False).encode('utf8')
+        }
 
     @error_handler
     def get_item_content(self, item):
@@ -186,12 +207,15 @@ class API(object):
             assert ValueError("Item is empty!")
         soup = BeautifulSoup(item, 'html.parser')
         item_content = soup.find('div', {'class': 'snippet-card__content'})
-        product = item_content.find('span', {'class': 'snippet-card__header-text'}).text
+        product = item_content.find(
+            'span', {'class': 'snippet-card__header-text'}).text
 
-        product_link = item_content.find('a', {'class': 'snippet-card__header-link'})['href']
+        product_link = item_content.find(
+            'a', {'class': 'snippet-card__header-link'})['href']
         product_link = clean_url(urljoin(config.BASE_URL, product_link))
 
-        category = item_content.find('a', {'class': 'snippet-card__subheader-link'})
+        category = item_content.find(
+            'a', {'class': 'snippet-card__subheader-link'})
 
         if category:
             category = category.text
@@ -202,35 +226,44 @@ class API(object):
             category = None
             category_link = None
 
-        short_description = item_content.find_all('li', {'class': 'snippet-card__desc-item'})
+        short_description = item_content.find_all(
+            'li', {'class': 'snippet-card__desc-item'})
         if short_description:
-            short_description = [li.text for li in short_description if 'Цвет' not in li.text]
+            short_description = [
+                li.text for li in short_description if 'Цвет' not in li.text]
         else:
             short_description = None
 
-        return json.dumps({
+        return {
             'product': product,
             'product_link': product_link,
             'category': category,
             'category_link': category_link,
             'short_description': short_description,
-        }, ensure_ascii=False).encode('utf8')
+        }
 
 
 bot = API()
-bot.get_page_by_name('macbook')
 
-results = bot.get_items_from_page(bot.LastPage)
-if results:
-    for item in results:
-        print("VIEW")
-        data = bot.get_item_view(item)
-        print(json.loads(data))
-        print("INFO")
-        data = bot.get_item_info(item)
-        print(json.loads(data))
-        print("CONTENT")
-        data = bot.get_item_content(item)
-        print(json.loads(data))
-        print("\n")
-print(results)
+products = []
+for x in tqdm(range(1, 10), desc='Pages processed'):
+    bot.get_page_by_name('macbook', page=x)
+
+    results = bot.get_items_from_page(bot.LastPage)
+    if results:
+        for item in results:
+            view_data = bot.get_item_view(item)
+            info_data = bot.get_item_info(item)
+            content_data = bot.get_item_content(item)
+            product = {
+                'preview': {
+                    'view': view_data,
+                    'info': info_data,
+                    'content': content_data
+                }
+            }
+            products.append(product)
+
+with open('products.json', 'w') as file:
+    file.write(json.dumps(products, ensure_ascii=False))
+    file.close()
