@@ -1,10 +1,10 @@
 import time
-from random import random
-
-from bs4 import BeautifulSoup
 import config
 import requests
 import logging
+
+from random import random
+from bs4 import BeautifulSoup
 
 
 def error_handler(func):
@@ -85,8 +85,8 @@ class ProxySwitcher(object):
             try:
                 self.last_response = response
                 self.last_page = response.text.decode('cp1251')
-            except:
-                pass
+            except Exception as e:
+                self.logger.critical(str(e))
             return False
 
     @error_handler
@@ -99,12 +99,11 @@ class ProxySwitcher(object):
                 tds = row.find_all('td')
                 if not tds:
                     continue
-                ip = tds[0].text
+                ip_address = tds[0].text
                 port = tds[1].text
-                self.proxies.append('{0}:{1}'.format(ip, port))
+                self.proxies.append('{0}:{1}'.format(ip_address, port))
             return True
-        else:
-            return False
+        return False
 
     @error_handler
     def get_new_proxy(self):

@@ -278,8 +278,7 @@ class API(object):
 
         if not url:
             url = self.get_item_content(item).get('product_link')
-        page = self.get_page_by_url(url)
-
+        return self.get_page_by_url(url)
 
 bot = API()
 
