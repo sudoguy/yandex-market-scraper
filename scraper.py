@@ -81,7 +81,9 @@ class API(object):
         )
         ch.setFormatter(formatter)
         self.logger.addHandler(ch)
-        self.set_new_proxy()
+
+        # Proxy mode on
+        # self.set_new_proxy()
 
     @error_handler
     def send_request(self, endpoint, post=None):
@@ -95,13 +97,13 @@ class API(object):
                                      'Cookie2': '$Version=1',
                                      'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4',
                                      'User-Agent': self.user_agent})
+        if 'http' not in endpoint:
+            endpoint = config.BASE_URL + endpoint
 
         if post is not None:  # POST
-            response = self.session.post(
-                config.BASE_URL + endpoint, data=post)
+            response = self.session.post(endpoint, data=post)
         else:  # GET
-            response = self.session.get(
-                config.BASE_URL + endpoint)
+            response = self.session.get(endpoint)
 
         if response.status_code == 200:
             if 'showcaptcha' in response.url:
@@ -269,16 +271,40 @@ class API(object):
             }
         }
 
-    # ToDo: not yet completed
     @error_handler
-    def get_product_all_info(self, item=None, url=None):
+    def get_product_images_links(self, page):
+        soup = BeautifulSoup(page, 'html.parser')
+        gallery_data = soup.find('div', {'class': 'n-gallery__image-container'})
+        images_links = gallery_data.find_all('img', {'class': 'n-gallery__image'})
+        images_links = map(lambda src: src.get('src'), images_links)  # getting src
+        images_links = list(map(lambda link: 'https://{0}orig'.format(''.join(link.strip('/')[:-1])),
+                                images_links))  # getting original photo links
+
+        return images_links
+
+    @error_handler
+    def get_product_info_from_page(self, page=None):
+        if not page:
+            self.logger.error('Page is not set!')
+            return False
+        original_images = self.get_product_images_links(page)
+        return {
+            'full_info': {
+                'original_images': original_images,
+            }
+        }
+
+    @error_handler
+    def get_product_full_info(self, item=None, url=None):
         if not item and not url:
             self.logger.error('Item or url is not set!')
             return False
 
         if not url:
             url = self.get_item_content(item).get('product_link')
-        return self.get_page_by_url(url)
+        self.get_page_by_url(url)
+        return self.get_product_info_from_page(self.LastPage)
+
 
 bot = API()
 

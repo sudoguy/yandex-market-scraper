@@ -18,7 +18,7 @@ def error_handler(func):
                 self.set_new_proxy()
             except Exception as e:
                 self.logger.warning(str(e))
-                time.sleep(60 * random())
+                time.sleep(10 * random())
                 continue
 
     return error_handler_wrapper
@@ -102,6 +102,7 @@ class ProxySwitcher(object):
                 ip_address = tds[0].text
                 port = tds[1].text
                 self.proxies.append('{0}:{1}'.format(ip_address, port))
+            self.proxies = self.proxies[::-1]
             return True
         return False
 
