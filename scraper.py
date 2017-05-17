@@ -1,19 +1,17 @@
 import json
 import logging
 import re
+import sys
+import time
 from random import random, choice
 
 import requests
+from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
-from tqdm import tqdm
 from requests.exceptions import ProxyError, SSLError
-import sys
-import urllib3
-import time
+from tqdm import tqdm
 
 import config
-
-from bs4 import BeautifulSoup
 
 # The urllib library was split into other modules from Python 2 to Python 3
 if sys.version_info.major == 3:
@@ -62,11 +60,13 @@ class API(object):
         self.LastResponse = None
         self.LastPage = None
         self.session = requests.Session()
-        self.session.mount('https://', HTTPAdapter(max_retries=3))
+        self.session.mount('https://', HTTPAdapter(max_retries=1))
         from proxy_switcher import ProxySwitcher
         self.proxy_switcher = ProxySwitcher()
         self.user_agent = choice(config.USER_AGENT)
         self.session.proxies = None
+
+        self.products = []
 
         # handle logging
         self.logger = logging.getLogger('[yandex-market-scraper]')
@@ -132,6 +132,13 @@ class API(object):
             self.logger.warning('Parameter "name" must be exist')
             return False
         return self.send_request('/search?text={0}&page={1}'.format(name, page))
+
+    @error_handler
+    def get_page_by_url(self, url=None):
+        if not url:
+            self.logger.warning('Parameter "url" must be exist')
+            return False
+        return self.send_request(url)
 
     @error_handler
     def get_items_from_page(self, page_text):
@@ -201,6 +208,12 @@ class API(object):
         }
 
     @error_handler
+    def save_products(self, path='products.json'):
+        with open(path, 'w') as file:
+            file.write(json.dumps(self.products, ensure_ascii=False))
+            file.close()
+
+    @error_handler
     def get_item_content(self, item):
         if not item:
             self.logger.error('Item is empty!')
@@ -242,28 +255,44 @@ class API(object):
             'short_description': short_description,
         }
 
+    @error_handler
+    def get_product_preview(self, item):
+        view_data = self.get_item_view(item)
+        info_data = self.get_item_info(item)
+        content_data = self.get_item_content(item)
+
+        return {
+            'preview': {
+                'view': view_data,
+                'info': info_data,
+                'content': content_data
+            }
+        }
+
+    # ToDo: not yet completed
+    @error_handler
+    def get_product_all_info(self, item=None, url=None):
+        if not item and not url:
+            self.logger.error('Item or url is not set!')
+            return False
+
+        if not url:
+            url = self.get_item_content(item).get('product_link')
+        page = self.get_page_by_url(url)
+
 
 bot = API()
 
-products = []
 for x in tqdm(range(1, 10), desc='Pages processed'):
     bot.get_page_by_name('macbook', page=x)
 
     results = bot.get_items_from_page(bot.LastPage)
     if results:
         for item in results:
-            view_data = bot.get_item_view(item)
-            info_data = bot.get_item_info(item)
-            content_data = bot.get_item_content(item)
             product = {
-                'preview': {
-                    'view': view_data,
-                    'info': info_data,
-                    'content': content_data
-                }
+                **bot.get_product_preview(item)  # Python 3.5 feature
             }
-            products.append(product)
+            bot.products.append(product)
+    time.sleep(10 + random(20))
 
-with open('products.json', 'w') as file:
-    file.write(json.dumps(products, ensure_ascii=False))
-    file.close()
+bot.save_products()
