@@ -124,8 +124,8 @@ class API(object):
             try:
                 self.LastResponse = response
                 self.LastPage = response.text.decode('cp1251')
-            except:
-                pass
+            except Exception as e:
+                self.logger.error(str(e))
             return False
 
     @error_handler
@@ -140,7 +140,8 @@ class API(object):
         if not url:
             self.logger.warning('Parameter "url" must be exist')
             return False
-        return self.send_request(url)
+        self.send_request(url)
+        return self.LastPage
 
     @error_handler
     def get_items_from_page(self, page_text):
@@ -275,22 +276,46 @@ class API(object):
     def get_product_images_links(self, page):
         soup = BeautifulSoup(page, 'html.parser')
         gallery_data = soup.find('div', {'class': 'n-gallery__image-container'})
-        images_links = gallery_data.find_all('img', {'class': 'n-gallery__image'})
-        images_links = map(lambda src: src.get('src'), images_links)  # getting src
-        images_links = list(map(lambda link: 'https://{0}orig'.format(''.join(link.strip('/')[:-1])),
-                                images_links))  # getting original photo links
+        if gallery_data:
+            images_links = gallery_data.find_all('img', {'class': 'n-gallery__image'})
+            images_links = map(lambda src: src.get('src'), images_links)  # getting src
+            images_links = list(map(lambda link: 'https://{0}orig'.format(''.join(link.strip('/')[:-1])),
+                                    images_links))  # getting original photo links
+        else:
+            images_links = None
 
         return images_links
+
+    @error_handler
+    def get_product_specs(self, page):
+        soup = BeautifulSoup(page, 'html.parser')
+        specs = {}
+        specs_data = soup.find('div', {'class': 'n-product-spec-wrap'})
+        specs_data = specs_data.find_all('div', {'class': 'n-product-spec-wrap__body'})
+        for chunk in specs_data:
+            specs_lines = chunk.find_all('dl', {'class': 'n-product-spec'})
+            for line in specs_lines:
+                name = line.find('dt').text
+                value = line.find('dd').text
+                specs.update({
+                    name: value
+                })
+
+        return specs
 
     @error_handler
     def get_product_info_from_page(self, page=None):
         if not page:
             self.logger.error('Page is not set!')
             return False
+        spec_url = self.LastResponse.url + '/spec'
+
         original_images = self.get_product_images_links(page)
+        specs = self.get_product_specs(self.get_page_by_url(spec_url))
         return {
             'full_info': {
                 'original_images': original_images,
+                'specs': specs
             }
         }
 
@@ -302,22 +327,27 @@ class API(object):
 
         if not url:
             url = self.get_item_content(item).get('product_link')
-        self.get_page_by_url(url)
-        return self.get_product_info_from_page(self.LastPage)
+            if not url:
+                return {
+                    'full_info': None
+                }
+        return self.get_product_info_from_page(self.get_page_by_url(url))
 
 
 bot = API()
 
-for x in tqdm(range(1, 10), desc='Pages processed'):
+for x in tqdm(range(1, 2), desc='Pages processed'):
     bot.get_page_by_name('macbook', page=x)
 
     results = bot.get_items_from_page(bot.LastPage)
     if results:
         for item in results:
             product = {
-                **bot.get_product_preview(item)  # Python 3.5 feature
+                # Python 3.5 feature
+                **bot.get_product_preview(item),
+                **bot.get_product_full_info(item)
             }
             bot.products.append(product)
-    time.sleep(10 + random(20))
+    time.sleep(10 + 20 * random())
 
 bot.save_products()
