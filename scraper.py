@@ -30,12 +30,12 @@ def error_handler(func):
                 self.logger.error('Captcha! Getting new proxy.')
                 self.user_agent = choice(config.USER_AGENT)
                 self.set_new_proxy()
-                time.sleep(60 * random())
+                time.sleep(10 * random())
             except (ProxyError, SSLError) as e:
                 self.logger.error(str(e))
                 self.logger.error('Not working proxy. Getting new one.')
                 self.set_new_proxy()
-                time.sleep(60 * random())
+                time.sleep(10 * random())
             except Exception as e:
                 self.logger.warning(str(e))
                 time.sleep(60 * random())
@@ -83,7 +83,7 @@ class API(object):
         self.logger.addHandler(ch)
 
         # Proxy mode on
-        # self.set_new_proxy()
+        self.set_new_proxy()
 
     @error_handler
     def send_request(self, endpoint, post=None):
@@ -295,8 +295,8 @@ class API(object):
         for chunk in specs_data:
             specs_lines = chunk.find_all('dl', {'class': 'n-product-spec'})
             for line in specs_lines:
-                name = line.find('dt').text
-                value = line.find('dd').text
+                name = line.find('dt').find('span').contents[0].strip()
+                value = line.find('dd').text.strip()
                 specs.update({
                     name: value
                 })
@@ -336,8 +336,8 @@ class API(object):
 
 bot = API()
 
-for x in tqdm(range(1, 2), desc='Pages processed'):
-    bot.get_page_by_name('macbook', page=x)
+for x in tqdm(range(1, 21), desc='Pages processed'):
+    bot.get_page_by_name('nvidia', page=x)
 
     results = bot.get_items_from_page(bot.LastPage)
     if results:
