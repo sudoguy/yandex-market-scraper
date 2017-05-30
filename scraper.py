@@ -6,6 +6,7 @@ import time
 from random import random, choice
 
 import requests
+import argparse
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ProxyError, SSLError
@@ -18,6 +19,11 @@ if sys.version_info.major == 3:
     from urllib.parse import urljoin
 else:
     from urlparse import urljoin
+
+parser = argparse.ArgumentParser(add_help=True)
+parser.add_argument('-n', type=int, help='count of pages', default=10)
+parser.add_argument('product', type=str, nargs=1, help='request in search')
+args = parser.parse_args()
 
 
 def error_handler(func):
@@ -336,8 +342,8 @@ class API(object):
 
 bot = API()
 
-for x in tqdm(range(1, 21), desc='Pages processed'):
-    bot.get_page_by_name('nvidia', page=x)
+for x in tqdm(range(1, args.n), desc='Pages processed'):
+    bot.get_page_by_name(args.product, page=x)
 
     results = bot.get_items_from_page(bot.LastPage)
     if results:
@@ -350,4 +356,4 @@ for x in tqdm(range(1, 21), desc='Pages processed'):
             bot.products.append(product)
     time.sleep(10 + 20 * random())
 
-bot.save_products()
+bot.save_products(path='{0}.json'.format(args.product))
