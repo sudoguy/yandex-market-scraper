@@ -342,10 +342,10 @@ class API(object):
 
 bot = API()
 
-product = args.product[0]
+product_name = args.product[0]
 
 for x in tqdm(range(1, args.n), desc='Pages processed'):
-    bot.get_page_by_name(product, page=x)
+    bot.get_page_by_name(product_name, page=x)
 
     results = bot.get_items_from_page(bot.LastPage)
     if results:
@@ -358,4 +358,4 @@ for x in tqdm(range(1, args.n), desc='Pages processed'):
             bot.products.append(product)
     time.sleep(10 + 20 * random())
 
-bot.save_products(path='{0}.json'.format(product))
+bot.save_products(path='{0}.json'.format(product_name))
