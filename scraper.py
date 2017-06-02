@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import logging
 import re
@@ -20,6 +21,11 @@ if sys.version_info.major == 3:
 else:
     from urlparse import urljoin
 
+
+class Captcha(Exception):
+    pass
+
+
 parser = argparse.ArgumentParser(add_help=True)
 parser.add_argument('-n', type=int, help='count of pages', default=10)
 parser.add_argument('product', type=str, nargs=1, help='request in search')
@@ -32,19 +38,17 @@ def error_handler(func):
         while True:
             try:
                 return func(*args, **kwargs)
-            except AttributeError:
-                self.logger.error('Captcha! Getting new proxy.')
+            except Captcha:
+                self.logger.error('Captcha! Getting new proxy')
                 self.user_agent = choice(config.USER_AGENT)
                 self.set_new_proxy()
-                time.sleep(10 * random())
             except (ProxyError, SSLError) as e:
                 self.logger.error(str(e))
                 self.logger.error('Not working proxy. Getting new one.')
                 self.set_new_proxy()
-                time.sleep(10 * random())
             except Exception as e:
                 self.logger.warning(str(e))
-                time.sleep(60 * random())
+                time.sleep(10 + 30 * random())
                 continue
 
     return error_handler_wrapper
@@ -113,7 +117,7 @@ class API(object):
 
         if response.status_code == 200:
             if 'showcaptcha' in response.url:
-                raise AttributeError
+                raise Captcha
             self.LastResponse = response
             self.LastPage = response.text
             return True
@@ -156,17 +160,16 @@ class API(object):
             assert ValueError('Page not found!')
 
         items = BeautifulSoup(page_text, 'html.parser').find('div', {'class': 'filter-applied-results'}) \
-            .find_all('div', {'class': 'snippet-list'})[1] \
+            .find('div', {'class': 'snippet-list'}) \
             .find_all('div', {'class': 'snippet-card'})
-        return map(lambda item: str(item), items)
+        return map(str, items)
 
     @error_handler
-    def set_new_proxy(self):
-        new_proxy = None
+    def set_new_proxy(self, new_proxy=None):
         while not new_proxy:
             new_proxy = self.proxy_switcher.get_new_proxy()
         self.session.proxies = {'https': new_proxy}
-        self.logger.warning("New proxy - {0} [LEFT {1}]".format(new_proxy, len(self.proxy_switcher.proxies)))
+        self.logger.info("New proxy - {0} [LEFT {1}]".format(new_proxy, len(self.proxy_switcher.proxies)))
 
     @error_handler
     def get_item_view(self, item):
@@ -356,6 +359,6 @@ for x in tqdm(range(1, args.n), desc='Pages processed'):
                 **bot.get_product_full_info(item)
             }
             bot.products.append(product)
-    time.sleep(10 + 20 * random())
+    time.sleep(10 + 10 * random())
 
 bot.save_products(path='{0}.json'.format(product_name))
