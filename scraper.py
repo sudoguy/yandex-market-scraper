@@ -159,7 +159,7 @@ class API(object):
             self.logger.error('Page not found!')
             assert ValueError('Page not found!')
 
-        items = BeautifulSoup(page_text, 'html.parser').find('div', {'class': 'filter-applied-results'}) \
+        items = BeautifulSoup(page_text, 'html.parser').find('div', {'class': 'n-filter-applied-results'}) \
             .find('div', {'class': 'snippet-list'}) \
             .find_all('div', {'class': 'snippet-card'})
         return map(str, items)
@@ -347,7 +347,7 @@ bot = API()
 
 product_name = args.product[0]
 
-for x in tqdm(range(1, args.n), desc='Pages processed'):
+for x in tqdm(range(1, args.n + 1), desc='Pages processed'):
     bot.get_page_by_name(product_name, page=x)
 
     results = bot.get_items_from_page(bot.LastPage)
